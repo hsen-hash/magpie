@@ -53,13 +53,36 @@ It's the app most people would have built if Sparkle were open-source.
 
 ### Option A — download the DMG (recommended)
 
-1. Grab `Magpie-0.1.dmg` from the **[latest release](https://github.com/hsen-hash/magpie/releases/latest)**
-2. Open it, drag `Magpie.app` to `Applications`
-3. The first time you open it, macOS will warn that it's from an unidentified developer (Magpie isn't notarized — that costs $99/year and Magpie is free). Two ways past the warning:
-   - **Right-click** `Magpie.app` → **Open** → **Open** in the dialog (one-time, per-app)
-   - Or: `xattr -dr com.apple.quarantine /Applications/Magpie.app` then double-click
+> ⚠️ **macOS will say "Magpie.app is damaged"** when you first open it. It isn't damaged — Magpie just isn't notarized (notarization requires a $99/year Apple Developer account, which a free OSS project doesn't have). One Terminal command fixes it. Skip step 3 at your peril.
+
+1. Download **`Magpie-0.1.dmg`** from the **[latest release](https://github.com/hsen-hash/magpie/releases/latest)**.
+2. Open the DMG and drag `Magpie.app` to `Applications`. **Eject the DMG.**
+3. In Terminal, run:
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/Magpie.app
+   ```
+   That removes the "downloaded from internet" flag macOS uses to gatekeep unsigned apps.
+4. Open `Magpie.app` from `Applications` (double-click, or `open /Applications/Magpie.app`).
 
 A magpie bird icon appears in your menu bar.
+
+<details>
+<summary>If you forgot step 3 and got the "damaged" error</summary>
+
+You'll need to bypass it on the DMG too because the quarantine flag was inherited when you copied the app out:
+
+```bash
+# Quit any open Magpie copies first
+pkill -x Magpie
+# Strip quarantine from both the disk image and the copied app
+xattr -dr com.apple.quarantine ~/Downloads/Magpie-0.1.dmg
+xattr -dr com.apple.quarantine /Applications/Magpie.app
+open /Applications/Magpie.app
+```
+
+This is a one-time hassle per install. After that, Magpie launches normally and survives macOS updates.
+
+</details>
 
 ### Option B — build from source
 

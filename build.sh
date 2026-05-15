@@ -48,6 +48,9 @@ cat > "${CONTENTS}/Info.plist" <<PLIST
 </plist>
 PLIST
 
+echo "→ ad-hoc codesigning (Gatekeeper still won't trust it, but prevents 'is damaged' error)"
+codesign --force --deep --sign - "${APP_DIR}" 2>&1 | tail -3
+
 echo "→ done: ${APP_DIR}"
 
 if [[ "${1:-}" == "--run" ]]; then
