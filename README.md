@@ -35,7 +35,7 @@ Each watched folder gets three managed children: `Recents/`, `AI Library/`, and 
 Requires macOS 13+ and the Xcode command-line tools.
 
 ```bash
-git clone https://github.com/YOU/magpie.git ~/Documents/Magpie
+git clone https://github.com/hsen-hash/magpie.git ~/Documents/Magpie
 cd ~/Documents/Magpie
 
 # generate the .app bundle
