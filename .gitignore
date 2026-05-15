@@ -14,8 +14,8 @@ DerivedData/
 .DS_Store
 ._*
 
-# Generated icon intermediates (the .icns is committed; PNG can be regenerated)
-tools/Magpie-1024.png
+# Distribution artifacts (built locally, attached to GitHub Releases)
+*.dmg
 
 # Personal config / data — must never be committed even if test-copied here
 config.json
