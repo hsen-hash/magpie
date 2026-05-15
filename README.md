@@ -53,34 +53,50 @@ It's the app most people would have built if Sparkle were open-source.
 
 ### Option A — download the DMG (recommended)
 
-> ⚠️ **macOS will say "Magpie.app is damaged"** when you first open it. It isn't damaged — Magpie just isn't notarized (notarization requires a $99/year Apple Developer account, which a free OSS project doesn't have). One Terminal command fixes it. Skip step 3 at your peril.
+> ⚠️ macOS will throw **two** Gatekeeper dialogs the first time you open Magpie. Both are normal for unsigned open-source apps — they don't mean anything is wrong. Notarization (the thing that suppresses these) requires a $99/year Apple Developer account, which Magpie doesn't have. You'll click past each once; after that Magpie launches normally forever.
 
 1. Download **`Magpie-0.1.dmg`** from the **[latest release](https://github.com/hsen-hash/magpie/releases/latest)**.
-2. Open the DMG and drag `Magpie.app` to `Applications`. **Eject the DMG.**
-3. In Terminal, run:
+2. Open the DMG, drag `Magpie.app` to `Applications`, and eject the disk image.
+3. In Terminal:
    ```bash
    xattr -dr com.apple.quarantine /Applications/Magpie.app
    ```
-   That removes the "downloaded from internet" flag macOS uses to gatekeep unsigned apps.
-4. Open `Magpie.app` from `Applications` (double-click, or `open /Applications/Magpie.app`).
+   That removes the "downloaded from internet" flag that triggers the first dialog ("Magpie is damaged").
+4. Double-click `Magpie.app`. You'll see a second dialog: **"Magpie.app" Not Opened — Apple could not verify…**. Click **Done**.
+5. Open **System Settings → Privacy & Security**, scroll to the **Security** section. You'll see:
+   > _"Magpie.app" was blocked from use because it is not from an identified developer._
 
-A magpie bird icon appears in your menu bar.
+   Click **Open Anyway**, authenticate, then click **Open** in the final confirmation.
+
+The bird appears in your menu bar. Subsequent launches are silent — macOS only asks once per install.
 
 <details>
-<summary>If you forgot step 3 and got the "damaged" error</summary>
+<summary>Terminal-only bypass for both dialogs</summary>
 
-You'll need to bypass it on the DMG too because the quarantine flag was inherited when you copied the app out:
+If you'd rather skip the System Settings dance:
 
 ```bash
-# Quit any open Magpie copies first
-pkill -x Magpie
-# Strip quarantine from both the disk image and the copied app
-xattr -dr com.apple.quarantine ~/Downloads/Magpie-0.1.dmg
 xattr -dr com.apple.quarantine /Applications/Magpie.app
-open /Applications/Magpie.app
+nohup /Applications/Magpie.app/Contents/MacOS/Magpie > /dev/null 2>&1 &
+disown
 ```
 
-This is a one-time hassle per install. After that, Magpie launches normally and survives macOS updates.
+This runs the binary directly, which bypasses the `.app` launch path Gatekeeper inspects. Magpie keeps running after you close Terminal. Future double-clicks of `Magpie.app` from Finder also work after this.
+
+</details>
+
+<details>
+<summary>Why does this happen?</summary>
+
+macOS Gatekeeper has three trust tiers:
+
+1. **App Store** — Apple notarized + reviewed. No warnings.
+2. **Developer ID notarized** — signed with a paid Developer ID + submitted to Apple's notary service. No warnings.
+3. **Everything else** — including all unsigned and ad-hoc-signed apps. Two dialogs the first time; once approved, runs silently.
+
+Magpie is tier 3. It ad-hoc-signs the bundle (signature is real, just self-issued) which prevents the strictest "is damaged" verdict, but Gatekeeper still wants the user to acknowledge that it's not from a known developer. This is a one-time consent per install, not a recurring hassle.
+
+When Magpie has a sustaining audience and reason to spend $99/year, we'll move to tier 2. Until then, the two-click consent is the trade-off for not charging users.
 
 </details>
 
