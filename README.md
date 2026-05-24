@@ -11,7 +11,7 @@ Open-source · BYO API key · See every cent · Reversible
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Platform: macOS 13+](https://img.shields.io/badge/platform-macOS%2013%2B-lightgrey.svg)](https://www.apple.com/macos/)
 [![Swift: 5.9](https://img.shields.io/badge/swift-5.9-orange.svg)](https://swift.org)
-[![Status: v0.1](https://img.shields.io/badge/status-v0.1%20preview-yellow.svg)](https://github.com/hsen-hash/magpie/releases)
+[![Status: v0.2](https://img.shields.io/badge/status-v0.2%20preview-yellow.svg)](https://github.com/hsen-hash/magpie/releases)
 
 </div>
 
@@ -55,7 +55,7 @@ It's the app most people would have built if Sparkle were open-source.
 
 > ⚠️ macOS will throw **two** Gatekeeper dialogs the first time you open Magpie. Both are normal for unsigned open-source apps — they don't mean anything is wrong. Notarization (the thing that suppresses these) requires a $99/year Apple Developer account, which Magpie doesn't have. You'll click past each once; after that Magpie launches normally forever.
 
-1. Download **`Magpie-0.1.dmg`** from the **[latest release](https://github.com/hsen-hash/magpie/releases/latest)**.
+1. Download **`Magpie-0.2.dmg`** from the **[latest release](https://github.com/hsen-hash/magpie/releases/latest)**.
 2. Open the DMG, drag `Magpie.app` to `Applications`, and eject the disk image.
 3. In Terminal:
    ```bash
@@ -119,7 +119,7 @@ To regenerate the icon at any time:
 To produce a redistributable DMG:
 
 ```bash
-./tools/make_dmg.sh      # writes Magpie-0.1.dmg
+./tools/make_dmg.sh      # writes Magpie-0.2.dmg
 ```
 
 ---
