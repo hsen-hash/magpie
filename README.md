@@ -21,7 +21,7 @@ Open-source · BYO API key · See every cent · Reversible
 
 Your `~/Downloads` folder has 200 files in it. Some are screenshots from three months ago. Some are PDFs you renamed twice and lost. One of them is a 4 GB `.dmg` you forgot to delete.
 
-**Magpie** lives in your menu bar and quietly files every new download into a folder called `AI Library/<Category>/`. It uses an LLM you provide (Gemini Flash today, Claude / Ollama next) and **always shows you the price tag**. Every move is reversible. Duplicates are flagged. Rules let you bypass the AI for filenames you already know.
+**Magpie** lives in your menu bar and quietly files every new download into a folder called `AI Library/<Category>/`. It uses an LLM you provide (Gemini Flash, or **Ollama for fully local categorization** with no network call — Claude coming next) and **always shows you the price tag**. Every move is reversible. Duplicates are flagged. Rules let you bypass the AI for filenames you already know.
 
 It's the app most people would have built if Sparkle were open-source.
 
@@ -124,25 +124,57 @@ To produce a redistributable DMG:
 
 ---
 
-## 🔑 Configure your API key
+## 🔑 Configure your provider
 
 On first launch Magpie creates `~/.config/magpie/config.json` (mode `600`):
 
 ```json
 {
   "provider": "gemini",
+
   "geminiApiKey": "PASTE_YOUR_KEY_HERE",
-  "geminiModel": "gemini-2.5-flash"
+  "geminiModel": "gemini-2.5-flash",
+
+  "ollamaHost": "http://localhost:11434",
+  "ollamaModel": "llama3.2",
+  "ollamaKeepAlive": "10m"
 }
 ```
 
-Get a Gemini API key from <https://aistudio.google.com/apikey>. Paste it into the file, save.
+The `provider` field picks which backend Magpie uses. Switch it, save, and relaunch.
+
+### Option 1 — Gemini (cloud, ~$0.0001 / file)
+
+1. Get a Gemini API key from <https://aistudio.google.com/apikey>
+2. Paste it into `geminiApiKey`, save
 
 **Security guarantees:**
 - File mode is `600` — only you can read it
 - Key is sent to Google as an `x-goog-api-key` **header**, never in a URL query string
 - URLSession errors are scrubbed before logging, so a stale key can't leak into `/tmp/magpie.log`
 - Magpie has no telemetry; the only network call it makes is to Google's Gemini endpoint
+
+### Option 2 — Ollama (fully local, $0, no network call)
+
+Magpie hands every batch of filenames to an Ollama server running on your machine. No data ever leaves the laptop. The Dashboard's API Usage tab marks every local call as `$0` and badges it with a green **Ollama** tag.
+
+1. Install Ollama: <https://ollama.com> (Homebrew: `brew install ollama`)
+2. Start the server (the GUI app starts it automatically; otherwise `ollama serve` in a terminal)
+3. Pull a small instruction-tuned model — anything in the 3B–7B range is plenty for filename categorization:
+   ```bash
+   ollama pull llama3.2          # ~2 GB, default
+   # or
+   ollama pull qwen2.5:3b        # ~2 GB, slightly faster on M-series
+   # or
+   ollama pull mistral           # ~4 GB, higher quality for messy filenames
+   ```
+4. Set `"provider": "ollama"` in `~/.config/magpie/config.json`, set `ollamaModel` to whatever you pulled, and save
+
+**What you trade off:** the first batch after a cold start takes a few seconds while Ollama loads the model into RAM. `ollamaKeepAlive` (default `10m`) controls how long it stays resident — bump it to `1h` if you want every batch to be instant.
+
+**Custom endpoint:** if you're running Ollama on a Linux box on your LAN, point `ollamaHost` at it (e.g. `"http://10.0.0.42:11434"`). Magpie treats LAN-only traffic the same as `localhost` — still flagged as local, still $0.
+
+---
 
 You can edit the file later from the popover (🔑 button) or directly:
 
@@ -211,7 +243,7 @@ From now on, every `IMG_*.jpeg` files for free, in milliseconds.
 | Rules engine | ✅ | ❌ | ✅ | ✅ |
 | AI-suggested rules | ✅ | ❌ | ❌ | ❌ |
 | "Why this category?" | ✅ | ❌ | n/a | n/a |
-| Local-only mode | 🛣 | ❌ | ✅ | ✅ |
+| Local-only mode | ✅ (Ollama) | ❌ | ✅ | ✅ |
 | Price | Free | $30 | $42 | Free |
 
 ---
@@ -251,7 +283,7 @@ Each watched folder gets three managed children:
 - [x] Suggest-rule-from-AI-decision wand
 - [x] Launch at login (`SMAppService`)
 - [x] Live cost ticker in menu-bar tooltip
-- [ ] **Ollama provider** — fully local categorization, no network call
+- [x] **Ollama provider** — fully local categorization, no network call
 - [ ] **Anthropic provider** — Claude Haiku as a drop-in option
 - [ ] **Perceptual image hashing** — find near-duplicate photos
 - [ ] **CLI** — `magpie sort`, `magpie undo last`, `magpie stats`
@@ -262,14 +294,14 @@ Each watched folder gets three managed children:
 
 ## 🏗️ Architecture (one paragraph)
 
-Swift Package Manager `executableTarget` bundled into a `.app` via `build.sh` (no Xcode project, no signing). `FolderWatcher` opens an `O_EVTONLY` file descriptor per watched folder, gets FSEvents through a `DispatchSource`, and debounces by 2 s. `CategorizationCoordinator` batches new filenames into chunks of 40, calls the Gemini API, retries once on failure, and re-enqueues hard failures so files never get silently orphaned. `MoveCoordinator` handles the actual filesystem moves with collision-safe renaming and writes one origin-to-final SQLite row per file, enabling revert. `RulesStore` short-circuits the API when a glob or regex matches. The `Dashboard` is a separate `NSWindow` with four SwiftUI tabs. Everything runs on the `MainActor` except the categorizer (`actor` for HTTP) and the dedup scanner (`actor` for the hash loop).
+Swift Package Manager `executableTarget` bundled into a `.app` via `build.sh` (no Xcode project, no signing). `FolderWatcher` opens an `O_EVTONLY` file descriptor per watched folder, gets FSEvents through a `DispatchSource`, and debounces by 2 s. `CategorizationCoordinator` batches new filenames into chunks of 40, hands them to a `Categorizer` protocol (Gemini over HTTPS or Ollama over `http://localhost:11434`), retries once on failure, and re-enqueues hard failures so files never get silently orphaned. `MoveCoordinator` handles the actual filesystem moves with collision-safe renaming and writes one origin-to-final SQLite row per file, enabling revert. `RulesStore` short-circuits the LLM when a glob or regex matches. The `Dashboard` is a separate `NSWindow` with four SwiftUI tabs; the API Usage tab marks every Ollama call as `$0` against a per-provider pricing table. Everything runs on the `MainActor` except the categorizers (`actor` for HTTP) and the dedup scanner (`actor` for the hash loop).
 
 ---
 
 ## 🤝 Contributing
 
 PRs welcome — especially for:
-- A second provider (Anthropic, OpenAI, or Ollama)
+- A third provider (Anthropic Claude or OpenAI) — drop a new `Categorizer`-conforming actor next to `OllamaCategorizer.swift` and wire it into `CategorizationCoordinator`
 - Screenshots in `screenshots/`
 - A `magpie sort` CLI binary that shares the categorizer
 

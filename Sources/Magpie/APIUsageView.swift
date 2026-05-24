@@ -12,7 +12,7 @@ struct APIUsageView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                Text("Gemini API consumption")
+                Text("LLM consumption")
                     .font(.title2)
                     .bold()
 
@@ -24,12 +24,15 @@ struct APIUsageView: View {
 
                 Divider()
 
-                Text("Pricing")
+                Text("Pricing (cloud providers)")
                     .font(.headline)
                 HStack(spacing: 24) {
                     pricingField(label: "Input $/1M tokens", value: $pricing.inputPerMillion)
                     pricingField(label: "Output $/1M tokens", value: $pricing.outputPerMillion)
                     Spacer()
+                    Text("Ollama calls are always $0.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 Divider()
@@ -40,6 +43,10 @@ struct APIUsageView: View {
                     TableColumn("When") { rec in
                         Text(rec.timestamp, style: .date) + Text(" ") + Text(rec.timestamp, style: .time)
                     }
+                    TableColumn("Provider") { rec in
+                        providerBadge(rec.provider)
+                    }
+                    .width(min: 70, max: 90)
                     TableColumn("Model") { Text($0.model).font(.system(.body, design: .monospaced)) }
                     TableColumn("Files") { rec in
                         Text("\(rec.filenameCount)")
@@ -54,9 +61,10 @@ struct APIUsageView: View {
                             .frame(maxWidth: .infinity, alignment: .trailing)
                     }
                     TableColumn("Est. cost") { rec in
-                        Text(String(format: "$%.5f", pricing.cost(
-                            prompt: rec.promptTokens,
-                            output: rec.candidateTokens)))
+                        Text(rec.isLocal
+                             ? "$0"
+                             : String(format: "$%.5f", pricing.cost(for: rec)))
+                            .foregroundStyle(rec.isLocal ? .secondary : .primary)
                             .frame(maxWidth: .infinity, alignment: .trailing)
                     }
                     TableColumn("Status") { rec in
@@ -75,12 +83,29 @@ struct APIUsageView: View {
     }
 
     private func summaryCard(title: String, t: ApiUsageTotals) -> some View {
-        let cost = pricing.cost(prompt: t.promptTokens, output: t.candidateTokens)
+        let cost = pricing.cost(for: t)
+        let isAllLocal = t.calls > 0
+            && t.localPromptTokens == t.promptTokens
+            && t.localCandidateTokens == t.candidateTokens
         return VStack(alignment: .leading, spacing: 4) {
             Text(title).font(.caption).foregroundStyle(.secondary).textCase(.uppercase)
-            Text(String(format: "$%.4f", cost))
-                .font(.title)
-                .bold()
+            if isAllLocal {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text("$0")
+                        .font(.title)
+                        .bold()
+                    Text("local")
+                        .font(.caption)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Color.green.opacity(0.18), in: Capsule())
+                        .foregroundStyle(.green)
+                }
+            } else {
+                Text(String(format: "$%.4f", cost))
+                    .font(.title)
+                    .bold()
+            }
             Text("\(t.calls) call\(t.calls == 1 ? "" : "s") · \(t.filenamesProcessed) file\(t.filenamesProcessed == 1 ? "" : "s")")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -99,6 +124,24 @@ struct APIUsageView: View {
             TextField("", value: value, format: .number.precision(.fractionLength(2)))
                 .frame(width: 70)
         }
+    }
+
+    private func providerBadge(_ provider: String) -> some View {
+        let (label, color): (String, Color)
+        switch CategorizerProvider(rawValue: provider) {
+        case .ollama:
+            (label, color) = ("Ollama", .green)
+        case .gemini:
+            (label, color) = ("Gemini", .accentColor)
+        case .none:
+            (label, color) = (provider.capitalized, .secondary)
+        }
+        return Text(label)
+            .font(.caption2)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(color.opacity(0.18), in: Capsule())
+            .foregroundStyle(color)
     }
 
     private func refresh() {

@@ -10,18 +10,24 @@ extension Notification.Name {
 final class CategorizationCoordinator: ObservableObject {
     enum Status: Equatable {
         case idle
-        case missingKey
+        /// The active provider isn't configured (e.g. Gemini chosen without
+        /// a key). The popover surfaces a "Set up <provider>…" button.
+        case notConfigured(provider: CategorizerProvider)
         case working
         case error(String)
     }
 
     @Published private(set) var categories: [URL: CategoryDecision] = [:]
     @Published private(set) var status: Status
+    /// Active provider for the current run. UI labels (banner copy, dashboard
+    /// title) pull from this so we never hard-code "Gemini" in user-facing
+    /// strings.
+    @Published private(set) var activeProvider: CategorizerProvider
 
     let apiLog: ApiUsageLog
     let rulesStore: RulesStore
     private let store: WatchedFoldersStore
-    private let categorizer: GeminiCategorizer?
+    private let categorizer: (any Categorizer)?
     private var cancellable: AnyCancellable?
     private var pending: Set<URL> = []
     private var batchTask: Task<Void, Never>?
@@ -33,12 +39,24 @@ final class CategorizationCoordinator: ObservableObject {
             .homeDirectoryForCurrentUser
             .appendingPathComponent(".config/magpie/moves.sqlite")
         self.apiLog = ApiUsageLog(path: logPath)
-        if let cfg = ConfigLoader.load() {
-            self.categorizer = GeminiCategorizer(config: cfg)
+
+        // Read whatever's on disk so we know which provider the user picked,
+        // then only construct the categorizer if it's actually usable.
+        let cfg = ConfigLoader.read()
+        let provider = CategorizerProvider(rawValue: cfg.provider.lowercased()) ?? .gemini
+        self.activeProvider = provider
+
+        if cfg.isUsable {
+            switch provider {
+            case .gemini:
+                self.categorizer = GeminiCategorizer(config: cfg)
+            case .ollama:
+                self.categorizer = OllamaCategorizer(config: cfg)
+            }
             self.status = .idle
         } else {
             self.categorizer = nil
-            self.status = .missingKey
+            self.status = .notConfigured(provider: provider)
         }
 
         cancellable = watcher.newDetectionsPublisher
@@ -54,7 +72,7 @@ final class CategorizationCoordinator: ObservableObject {
             let url = d.url
             guard categories[url] == nil, !pending.contains(url) else { continue }
 
-            // Rules apply before the API. First match wins; saves a Gemini call.
+            // Rules apply before the LLM. First match wins; saves a model call.
             if let rule = rulesStore.matchRule(for: url.lastPathComponent) {
                 let decision = CategoryDecision(
                     category: rule.category,
@@ -69,8 +87,8 @@ final class CategorizationCoordinator: ObservableObject {
             candidates.append(url)
         }
 
-        // If no API key, we still want rule-matched files filed (handled above).
-        // Anything left goes to Gemini — bail if we can't call it.
+        // Rule-matched files already filed above. Everything left needs the LLM —
+        // bail if it isn't configured.
         guard categorizer != nil else { return }
         guard !candidates.isEmpty else { return }
         for u in candidates { pending.insert(u) }
@@ -108,6 +126,7 @@ final class CategorizationCoordinator: ObservableObject {
                     existing: existing
                 )
                 apiLog.record(
+                    provider: categorizer.provider.rawValue,
                     model: result.model,
                     filenameCount: filenames.count,
                     promptTokens: result.usage.promptTokens,
@@ -147,10 +166,10 @@ final class CategorizationCoordinator: ObservableObject {
     }
 
     private func categorizeWithRetry(
-        categorizer: GeminiCategorizer,
+        categorizer: any Categorizer,
         filenames: [String],
         existing: [String]
-    ) async throws -> GeminiCategorizer.Result {
+    ) async throws -> CategorizerResult {
         do {
             return try await categorizer.categorize(filenames: filenames, existingCategories: existing)
         } catch {
@@ -178,18 +197,11 @@ final class CategorizationCoordinator: ObservableObject {
     func openConfigInEditor() {
         let url = ConfigLoader.configURL
         if !FileManager.default.fileExists(atPath: url.path) {
-            let template = """
-            {
-              "provider": "gemini",
-              "geminiApiKey": "PASTE_YOUR_NEW_KEY_HERE",
-              "geminiModel": "gemini-2.5-flash"
-            }
-            """
             try? FileManager.default.createDirectory(
                 at: url.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
-            try? template.data(using: .utf8)?.write(to: url)
+            try? ConfigLoader.defaultTemplate.data(using: .utf8)?.write(to: url)
         }
         NSWorkspace.shared.open(url)
     }

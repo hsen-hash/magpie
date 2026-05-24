@@ -24,7 +24,7 @@ struct RulesView: View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Rules").font(.title2).bold()
-                Text("Filenames matching a rule skip Gemini entirely — instant categorization, no API spend. First match wins.")
+                Text("Filenames matching a rule skip the LLM entirely — instant categorization, no API spend. First match wins.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

@@ -69,14 +69,16 @@ struct PopoverView: View {
     @ViewBuilder
     private var statusBanner: some View {
         switch coordinator.status {
-        case .missingKey:
+        case .notConfigured(let provider):
             HStack(spacing: 6) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
-                Text("Gemini API key not set.").font(.caption)
+                Text(notConfiguredCopy(for: provider)).font(.caption)
                 Spacer()
-                Button("Set Key…") { coordinator.openConfigInEditor() }
-                    .controlSize(.small)
+                Button(provider == .ollama ? "Setup…" : "Set Key…") {
+                    coordinator.openConfigInEditor()
+                }
+                .controlSize(.small)
             }
             .padding(8)
             .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
@@ -147,7 +149,19 @@ struct PopoverView: View {
             Label("Process Backlog", systemImage: "tray.and.arrow.down")
         }
         .controlSize(.regular)
-        .disabled(store.folders.isEmpty || coordinator.status == .missingKey)
+        .disabled(store.folders.isEmpty || isNotConfigured)
+    }
+
+    private var isNotConfigured: Bool {
+        if case .notConfigured = coordinator.status { return true }
+        return false
+    }
+
+    private func notConfiguredCopy(for provider: CategorizerProvider) -> String {
+        switch provider {
+        case .gemini: return "Gemini API key not set."
+        case .ollama: return "Ollama model not configured."
+        }
     }
 
     @State private var recentsCount: Int = 0
@@ -166,7 +180,7 @@ struct PopoverView: View {
                 }
                 .controlSize(.regular)
                 .tint(.orange)
-                .disabled(coordinator.status == .missingKey)
+                .disabled(isNotConfigured)
                 .help("Re-process files stranded in Recents/")
             }
         }
@@ -332,7 +346,7 @@ struct PopoverView: View {
         }
         let alert = NSAlert()
         alert.messageText = "Process \(n) existing file\(n == 1 ? "" : "s")?"
-        alert.informativeText = "Magpie will move every top-level file in your watched folders into Recents, ask Gemini to categorize them, then file them into AI Library. You can revert any move from this menu."
+        alert.informativeText = "Magpie will move every top-level file in your watched folders into Recents, ask \(coordinator.activeProvider.displayName) to categorize them, then file them into AI Library. You can revert any move from this menu."
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Process \(n) file\(n == 1 ? "" : "s")")
         alert.addButton(withTitle: "Cancel")

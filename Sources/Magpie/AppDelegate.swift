@@ -82,10 +82,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ?? Date(timeIntervalSinceNow: -30 * 24 * 3600)
         let t = coordinator.apiLog.totals(since: startOfMonth)
         let pricing = PricingTable() // defaults; Settings editing comes later
-        let cost = pricing.cost(prompt: t.promptTokens, output: t.candidateTokens)
+        let cost = pricing.cost(for: t)
         let plural = t.calls == 1 ? "" : "s"
+        let allLocal = t.calls > 0
+            && t.localPromptTokens == t.promptTokens
+            && t.localCandidateTokens == t.candidateTokens
         let costStr: String
-        if cost < 0.0001 {
+        if allLocal {
+            costStr = "$0 local"
+        } else if cost < 0.0001 {
             costStr = "$0"
         } else {
             costStr = String(format: "$%.4f", cost)

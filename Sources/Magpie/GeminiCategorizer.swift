@@ -1,41 +1,17 @@
 import Foundation
 
-actor GeminiCategorizer {
-    enum CategorizerError: LocalizedError {
-        case http(Int, String)
-        case invalidResponse(String)
+actor GeminiCategorizer: Categorizer {
+    nonisolated let provider: CategorizerProvider = .gemini
+    nonisolated let displayLabel: String
 
-        var errorDescription: String? {
-            switch self {
-            case .http(let code, let body): return "HTTP \(code): \(body.prefix(160))"
-            case .invalidResponse(let body): return "Bad response: \(body.prefix(160))"
-            }
-        }
-    }
-
-    struct Usage {
-        let promptTokens: Int
-        let candidateTokens: Int
-        let totalTokens: Int
-        let httpStatus: Int
-    }
-
-    struct Decision {
-        let category: String
-        let reason: String
-    }
-
-    struct Result {
-        let mapping: [String: Decision]
-        let usage: Usage
-        let model: String
-    }
-
-    private let config: MagpieConfig
+    private let apiKey: String
+    private let model: String
     private let session: URLSession
 
     init(config: MagpieConfig) {
-        self.config = config
+        self.apiKey = config.geminiApiKey
+        self.model = config.geminiModel
+        self.displayLabel = "Gemini · \(config.geminiModel)"
         let cfg = URLSessionConfiguration.default
         cfg.timeoutIntervalForRequest = 60
         self.session = URLSession(configuration: cfg)
@@ -47,25 +23,25 @@ actor GeminiCategorizer {
         return String(raw[..<i]) + "?key=REDACTED"
     }
 
-    func categorize(filenames: [String], existingCategories: [String]) async throws -> Result {
+    func categorize(filenames: [String], existingCategories: [String]) async throws -> CategorizerResult {
         guard !filenames.isEmpty else {
-            return Result(
+            return CategorizerResult(
                 mapping: [:],
-                usage: Usage(promptTokens: 0, candidateTokens: 0, totalTokens: 0, httpStatus: 0),
-                model: config.geminiModel
+                usage: CategorizerUsage(promptTokens: 0, candidateTokens: 0, totalTokens: 0, httpStatus: 0),
+                model: model
             )
         }
 
-        let prompt = Self.buildPrompt(filenames: filenames, existing: existingCategories)
+        let prompt = CategorizerPrompt.build(filenames: filenames, existing: existingCategories)
         let endpoint = URL(string:
-            "https://generativelanguage.googleapis.com/v1beta/models/\(config.geminiModel):generateContent"
+            "https://generativelanguage.googleapis.com/v1beta/models/\(model):generateContent"
         )!
 
         var req = URLRequest(url: endpoint)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         // Send key in a header so the URL stays clean of secrets in any error log.
-        req.setValue(config.geminiApiKey, forHTTPHeaderField: "x-goog-api-key")
+        req.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
 
         let body: [String: Any] = [
             "contents": [["parts": [["text": prompt]]]],
@@ -103,58 +79,16 @@ actor GeminiCategorizer {
             throw CategorizerError.invalidResponse(text)
         }
 
-        var map: [String: Decision] = [:]
-        for (filename, value) in raw {
-            if let dict = value as? [String: Any],
-               let cat = dict["category"] as? String, !cat.isEmpty {
-                let why = (dict["why"] as? String) ?? ""
-                map[filename] = Decision(category: cat, reason: why)
-            } else if let cat = value as? String, !cat.isEmpty {
-                // Backwards-compat: model returned plain "category" strings.
-                map[filename] = Decision(category: cat, reason: "")
-            }
-        }
+        let map = CategorizerPrompt.parse(raw: raw)
 
         let usageDict = envelope?["usageMetadata"] as? [String: Any]
-        let usage = Usage(
+        let usage = CategorizerUsage(
             promptTokens: (usageDict?["promptTokenCount"] as? Int) ?? 0,
             candidateTokens: (usageDict?["candidatesTokenCount"] as? Int) ?? 0,
             totalTokens: (usageDict?["totalTokenCount"] as? Int) ?? 0,
             httpStatus: http.statusCode
         )
 
-        return Result(mapping: map, usage: usage, model: config.geminiModel)
-    }
-
-    private static func buildPrompt(filenames: [String], existing: [String]) -> String {
-        let filenamesJSON = (try? String(
-            data: JSONSerialization.data(withJSONObject: filenames),
-            encoding: .utf8
-        )) ?? "[]"
-        let existingList = existing.isEmpty ? "(none yet)" : existing.joined(separator: ", ")
-
-        return """
-        You categorize filenames into broad folder categories for a personal file organizer.
-
-        Existing categories the user already has: \(existingList)
-        Prefer to reuse an existing category when appropriate. If a filename doesn't fit any, create a new short category (1–3 words, Title Case, human-readable, no emoji, no punctuation other than spaces).
-
-        Examples of good categories: Screenshots, Receipts, Design Assets, Financial, Invoices, Resumes, Photos, Software, Documents, Code, Music, Videos, Books.
-
-        Filenames to categorize:
-        \(filenamesJSON)
-
-        Return ONLY a JSON object mapping each input filename (verbatim) to an object with TWO fields:
-          - "category": the chosen category string
-          - "why": one short sentence (max 80 chars) citing the SPECIFIC clue in the filename that justified the choice. No filler. No restating the category.
-
-        Example output:
-        {
-          "Invoice-2024-01.pdf": { "category": "Invoices", "why": "Filename starts with 'Invoice-' and is a PDF." },
-          "IMG_8821.jpeg": { "category": "Photos", "why": "Standard camera 'IMG_####.jpeg' naming." }
-        }
-
-        Output ONLY the JSON object. No prose, no markdown, no code fences.
-        """
+        return CategorizerResult(mapping: map, usage: usage, model: model)
     }
 }
