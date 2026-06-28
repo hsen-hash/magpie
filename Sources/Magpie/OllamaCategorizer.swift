@@ -7,7 +7,7 @@ import Foundation
 /// instruction-tuned model the user has pulled — e.g. `llama3.2`, `qwen2.5:3b`,
 /// `mistral`, `phi3`, etc. Anything that responds well to `format: "json"`
 /// works; small (~3B) instruct models are plenty for filename categorization.
-actor OllamaCategorizer: Categorizer {
+actor OllamaCategorizer: Categorizer, TextCompleter {
     nonisolated let provider: CategorizerProvider = .ollama
     nonisolated let displayLabel: String
 
@@ -130,6 +130,75 @@ actor OllamaCategorizer: Categorizer {
         )
 
         return CategorizerResult(mapping: map, usage: usage, model: model)
+    }
+
+    /// Freeform completion used by the daily digest. Plain-text mode (no
+    /// `format: "json"`), small temperature for a natural-sounding summary.
+    /// Runs entirely on the local Ollama server — no data leaves the machine.
+    func complete(prompt: String) async throws -> CompletionResult {
+        let endpoint = host.appendingPathComponent("api/generate")
+
+        var req = URLRequest(url: endpoint)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body: [String: Any] = [
+            "model": model,
+            "prompt": prompt,
+            "stream": false,
+            "keep_alive": keepAlive,
+            "options": [
+                "temperature": 0.4,
+                "num_ctx": 8192,
+                "num_predict": 512
+            ]
+        ]
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await session.data(for: req)
+        } catch {
+            let urlErr = error as? URLError
+            let isConnFailure = urlErr.map {
+                [.cannotConnectToHost, .cannotFindHost,
+                 .networkConnectionLost, .notConnectedToInternet,
+                 .timedOut].contains($0.code)
+            } ?? false
+            if isConnFailure {
+                let label = host.host.map { "\($0):\(host.port ?? 11434)" } ?? host.absoluteString
+                throw CategorizerError.connectionFailed(
+                    "Couldn't reach Ollama at \(label). Is `ollama serve` running and is the model pulled?"
+                )
+            }
+            throw CategorizerError.invalidResponse(error.localizedDescription)
+        }
+
+        guard let http = response as? HTTPURLResponse else {
+            throw CategorizerError.invalidResponse("no HTTPURLResponse")
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            let snippet = String(data: data, encoding: .utf8) ?? "<binary>"
+            if http.statusCode == 404 {
+                throw CategorizerError.http(404,
+                    "Model '\(model)' not found on Ollama. Run: ollama pull \(model)")
+            }
+            throw CategorizerError.http(http.statusCode, snippet)
+        }
+
+        let envelope = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let text = ((envelope?["response"] as? String) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let promptTokens = (envelope?["prompt_eval_count"] as? Int) ?? 0
+        let outputTokens = (envelope?["eval_count"] as? Int) ?? 0
+        let usage = CategorizerUsage(
+            promptTokens: promptTokens,
+            candidateTokens: outputTokens,
+            totalTokens: promptTokens + outputTokens,
+            httpStatus: http.statusCode
+        )
+        return CompletionResult(text: text, usage: usage, model: model)
     }
 
     /// Removes leading/trailing ```json fences if a chatty model added them.

@@ -1,12 +1,15 @@
 import AppKit
 import SwiftUI
+import UserNotifications
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
     private var costTimer: Timer?
+    private var digestTimer: Timer?
     private var apiUsageObserver: NSObjectProtocol?
+    private static let digestNotificationID = "magpie.dailyDigest"
     private let watchedFolders = WatchedFoldersStore()
     private let rulesStore = RulesStore()
     private lazy var fileWatcher = FileWatcherManager(store: watchedFolders)
@@ -20,12 +23,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         watcher: fileWatcher,
         categorizer: coordinator
     )
+    private lazy var digestService = DigestService(
+        store: watchedFolders,
+        moveLog: mover.log,
+        coordinator: coordinator
+    )
     private lazy var dashboard = DashboardController(
         store: watchedFolders,
         watcher: fileWatcher,
         coordinator: coordinator,
         mover: mover,
-        rulesStore: rulesStore
+        rulesStore: rulesStore,
+        digest: digestService
     )
 
     nonisolated func applicationDidFinishLaunching(_ notification: Notification) {
@@ -54,11 +63,78 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 watcher: fileWatcher,
                 coordinator: coordinator,
                 mover: mover,
-                onOpenDashboard: { [weak self] in self?.dashboard.show() }
+                onOpenDashboard: { [weak self] in self?.dashboard.show() },
+                onOpenDigest: { [weak self] in self?.dashboard.show(tab: .digest) }
             )
         )
 
         startCostTicker()
+        startDigestScheduler()
+    }
+
+    // MARK: - Daily digest
+
+    private func startDigestScheduler() {
+        UNUserNotificationCenter.current().delegate = self
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+
+        digestService.onDigestReady = { [weak self] digest, background in
+            Task { @MainActor in self?.handleDigestReady(digest, background: background) }
+        }
+
+        // Catch up shortly after launch if a day has already passed (or it's
+        // the first run ever), then re-check hourly.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
+            self?.digestService.runDailyIfDue()
+        }
+        digestTimer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.digestService.runDailyIfDue() }
+        }
+    }
+
+    private func handleDigestReady(_ digest: DailyDigest, background: Bool) {
+        // Manual "Scan now" runs already show the result on screen — no need to
+        // interrupt with a notification.
+        guard background else { return }
+        let content = UNMutableNotificationContent()
+        content.title = "Magpie daily digest"
+        if digest.hasActivity {
+            var parts: [String] = []
+            if digest.filesFiled > 0 { parts.append("\(digest.filesFiled) filed") }
+            if digest.stuckInRecents > 0 { parts.append("\(digest.stuckInRecents) in Recents") }
+            if digest.duplicateGroups > 0 { parts.append("\(digest.duplicateGroups) dup sets") }
+            content.body = parts.joined(separator: " · ") + ". Tap for tips on staying tidy."
+        } else {
+            content.body = "Quiet day — your watched folders are tidy."
+        }
+        content.sound = .default
+        let request = UNNotificationRequest(
+            identifier: Self.digestNotificationID,
+            content: content,
+            trigger: nil
+        )
+        UNUserNotificationCenter.current().add(request)
+    }
+
+    // Show the digest tab when the notification is tapped.
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        Task { @MainActor in
+            self.dashboard.show(tab: .digest)
+            completionHandler()
+        }
+    }
+
+    // Allow the banner to appear even while Magpie is frontmost.
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .sound])
     }
 
     private func startCostTicker() {
