@@ -7,6 +7,7 @@ struct PopoverView: View {
     @ObservedObject var coordinator: CategorizationCoordinator
     @ObservedObject var mover: MoveCoordinator
     let onOpenDashboard: () -> Void
+    let onOpenDigest: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -46,6 +47,12 @@ struct PopoverView: View {
             Image(systemName: "bird.fill").font(.title2)
             Text("Magpie").font(.headline)
             Spacer()
+            Button { onOpenDigest() } label: {
+                Image(systemName: "calendar.badge.clock")
+            }
+            .buttonStyle(.borderless)
+            .help("Daily digest — what got added & how to avoid clutter")
+
             Button { onOpenDashboard() } label: {
                 Image(systemName: "chart.bar.doc.horizontal")
             }
@@ -262,6 +269,18 @@ struct PopoverView: View {
                     .padding(.vertical, 2)
                     .background(Color.accentColor.opacity(0.18), in: Capsule())
                 if !record.reverted {
+                    Button { openFile(record) } label: {
+                        Image(systemName: "arrow.up.forward.app")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Open file")
+
+                    Button { revealFile(record) } label: {
+                        Image(systemName: "magnifyingglass")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Reveal in Finder")
+
                     Button { mover.revert(record) } label: {
                         Image(systemName: "arrow.uturn.backward")
                     }
@@ -277,6 +296,30 @@ struct PopoverView: View {
                 .padding(.leading, 22)
         }
         .opacity(record.reverted ? 0.55 : 1)
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2) {
+            if !record.reverted { openFile(record) }
+        }
+    }
+
+    /// Open the filed document in its default application. Falls back to
+    /// revealing it in Finder if the file has since moved or been deleted.
+    private func openFile(_ record: MoveRecord) {
+        let url = URL(fileURLWithPath: record.newPath)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            NSSound.beep()
+            return
+        }
+        NSWorkspace.shared.open(url)
+    }
+
+    private func revealFile(_ record: MoveRecord) {
+        let url = URL(fileURLWithPath: record.newPath)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            NSSound.beep()
+            return
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
     private func prettyPath(_ url: URL) -> String {

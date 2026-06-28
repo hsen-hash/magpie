@@ -194,6 +194,13 @@ final class CategorizationCoordinator: ObservableObject {
         return Array(result).sorted()
     }
 
+    /// The active provider exposed as a freeform text completer, if it supports
+    /// one. Used by the daily digest to write its narrative. `nil` when no
+    /// provider is configured.
+    var textCompleter: (any TextCompleter)? {
+        categorizer as? TextCompleter
+    }
+
     func openConfigInEditor() {
         let url = ConfigLoader.configURL
         if !FileManager.default.fileExists(atPath: url.path) {

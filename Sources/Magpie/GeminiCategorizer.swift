@@ -92,3 +92,54 @@ actor GeminiCategorizer: Categorizer {
         return CategorizerResult(mapping: map, usage: usage, model: model)
     }
 }
+
+extension GeminiCategorizer: TextCompleter {
+    /// Freeform completion used by the daily digest. Unlike `categorize`, this
+    /// asks for plain prose (no JSON response mode) and uses a small non-zero
+    /// temperature so the summary reads naturally.
+    func complete(prompt: String) async throws -> CompletionResult {
+        let endpoint = URL(string:
+            "https://generativelanguage.googleapis.com/v1beta/models/\(model):generateContent"
+        )!
+
+        var req = URLRequest(url: endpoint)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
+
+        let body: [String: Any] = [
+            "contents": [["parts": [["text": prompt]]]],
+            "generationConfig": ["temperature": 0.4]
+        ]
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await session.data(for: req)
+        } catch {
+            throw CategorizerError.invalidResponse(Self.sanitize(error.localizedDescription))
+        }
+        guard let http = response as? HTTPURLResponse else {
+            throw CategorizerError.invalidResponse("no HTTPURLResponse")
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            let snippet = String(data: data, encoding: .utf8) ?? "<binary>"
+            throw CategorizerError.http(http.statusCode, snippet)
+        }
+
+        let envelope = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let candidates = envelope?["candidates"] as? [[String: Any]]
+        let parts = (candidates?.first?["content"] as? [String: Any])?["parts"] as? [[String: Any]]
+        let text = ((parts?.first?["text"] as? String) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let usageDict = envelope?["usageMetadata"] as? [String: Any]
+        let usage = CategorizerUsage(
+            promptTokens: (usageDict?["promptTokenCount"] as? Int) ?? 0,
+            candidateTokens: (usageDict?["candidatesTokenCount"] as? Int) ?? 0,
+            totalTokens: (usageDict?["totalTokenCount"] as? Int) ?? 0,
+            httpStatus: http.statusCode
+        )
+        return CompletionResult(text: text, usage: usage, model: model)
+    }
+}
