@@ -364,7 +364,7 @@ struct PopoverView: View {
                     }
                     .font(.caption)
                 Spacer()
-                Text("Magpie v0.2")
+                Text("Magpie v0.3")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
