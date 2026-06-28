@@ -11,7 +11,7 @@ Open-source · BYO API key · See every cent · Reversible
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Platform: macOS 13+](https://img.shields.io/badge/platform-macOS%2013%2B-lightgrey.svg)](https://www.apple.com/macos/)
 [![Swift: 5.9](https://img.shields.io/badge/swift-5.9-orange.svg)](https://swift.org)
-[![Status: v0.2](https://img.shields.io/badge/status-v0.2%20preview-yellow.svg)](https://github.com/hsen-hash/magpie/releases)
+[![Status: v0.3](https://img.shields.io/badge/status-v0.3%20preview-yellow.svg)](https://github.com/hsen-hash/magpie/releases)
 
 </div>
 
@@ -38,6 +38,8 @@ It's the app most people would have built if Sparkle were open-source.
 | ✨ **Rules engine** | `*.dmg → Software`, `Screenshot *.png → Screenshots`, or full regex. First match wins; rule-matched files skip the LLM entirely. |
 | 🔮 **"Why this category?"** | Gemini's reasoning is captured per move. Spot a pattern → click 🪄 in Activity to turn that AI decision into a rule. |
 | 🛟 **Recover from anything** | "Rescue" button re-feeds orphaned files in `Recents/` back through the pipeline if something ever goes wrong. |
+| 📂 **Open straight from Recent moves** | Just filed something and need it now? Open it in its default app or reveal it in Finder right from the menu-bar popover — double-click the row, or use the ↗ / 🔍 buttons. |
+| 🗓️ **Daily clutter digest** | Once a day (or on demand) Magpie scans your folders and writes a plain-language summary: what got filed, what's piling up in `Recents/`, how much space duplicates are wasting — plus concrete tips to stay tidy. Local heuristics always; an AI narrative on top via your configured provider ($0 on Ollama). Pings you with a notification. |
 
 ---
 
@@ -55,7 +57,7 @@ It's the app most people would have built if Sparkle were open-source.
 
 > ⚠️ macOS will throw **two** Gatekeeper dialogs the first time you open Magpie. Both are normal for unsigned open-source apps — they don't mean anything is wrong. Notarization (the thing that suppresses these) requires a $99/year Apple Developer account, which Magpie doesn't have. You'll click past each once; after that Magpie launches normally forever.
 
-1. Download **`Magpie-0.2.dmg`** from the **[latest release](https://github.com/hsen-hash/magpie/releases/latest)**.
+1. Download **`Magpie-0.3.dmg`** from the **[latest release](https://github.com/hsen-hash/magpie/releases/latest)**.
 2. Open the DMG, drag `Magpie.app` to `Applications`, and eject the disk image.
 3. In Terminal:
    ```bash
@@ -119,7 +121,7 @@ To regenerate the icon at any time:
 To produce a redistributable DMG:
 
 ```bash
-./tools/make_dmg.sh      # writes Magpie-0.2.dmg
+./tools/make_dmg.sh      # writes Magpie-0.3.dmg
 ```
 
 ---
@@ -205,16 +207,18 @@ Click the menu-bar bird to open the popover:
 - **Process Backlog** — One-click categorize every pre-existing top-level file in your watched folders
 - **Rescue *N* in Recents** — Appears only when there are orphaned files; re-feeds them through the pipeline
 - **In progress** — Files being categorized right now (with a tiny spinner)
-- **Recent moves** — Last 30 filings; ↶ reverts a move to its original location
+- **Recent moves** — Last 30 filings; ↗ opens the file, 🔍 reveals it in Finder, ↶ reverts the move (double-click a row to open it)
 - **Launch at login** — Switch at the bottom
+- **🗓️** — Open the Daily Digest tab
 - **🔑** — Edit your API key in your default editor
 - **📊** — Open the Dashboard window
 
 ### The Dashboard (📊)
 
-Four tabs:
+Five tabs:
 
 - **Activity** — Full SQLite move journal. Filter by filename, hide reverted, Reveal in Finder, revert, or 🪄 turn any AI decision into a Rule
+- **Digest** — Your latest daily summary: stat cards (filed / stuck in Recents / duplicate sets), an AI narrative, declutter tips, new-files-by-category bars, and your largest new files. **Scan now** runs one on demand
 - **Rules** — Add/edit/delete/reorder rules. Each row shows its session hit count
 - **Duplicates** — Click **Scan now**. SHA-256s every file 4 KB – 500 MB in your watched folders' trees. Per-file "Reveal in Finder" and "Move to Trash"
 - **API Usage** — Today / 30 days / all-time cards with estimated cost. Recent calls table with exact prompt / output tokens. Pricing editable inline
@@ -228,6 +232,16 @@ Four tabs:
 5. Save the rule
 
 From now on, every `IMG_*.jpeg` files for free, in milliseconds.
+
+### Workflow: a daily nudge to stay tidy
+
+Once every 24 hours Magpie quietly takes stock and posts a notification. Tap it (or hit 🗓️ in the popover) to open the **Digest** tab:
+
+- **What got added** — count, total size, a breakdown by category, and your largest new files
+- **What's piling up** — files stranded uncategorized in `Recents/`, plus how many duplicate sets exist and how much space they're wasting
+- **How to avoid clutter** — always-on local heuristics (clear Recents, dedupe, delete that 4 GB installer, add a rule for a category you keep getting), and — if a provider is configured — a short AI-written summary on top
+
+The schedule runs in the background; the heuristic tips never need the network, so the digest is useful even with no key set. On Ollama the AI narrative is free and fully local. Every model call still shows up in **API Usage** so there are no surprises. Want one right now? Open the tab and click **Scan now**.
 
 ---
 
@@ -284,6 +298,8 @@ Each watched folder gets three managed children:
 - [x] Launch at login (`SMAppService`)
 - [x] Live cost ticker in menu-bar tooltip
 - [x] **Ollama provider** — fully local categorization, no network call
+- [x] Open / reveal filed documents straight from Recent moves
+- [x] **Daily clutter digest** — scheduled + on-demand summary with heuristic + AI declutter advice
 - [ ] **Anthropic provider** — Claude Haiku as a drop-in option
 - [ ] **Perceptual image hashing** — find near-duplicate photos
 - [ ] **CLI** — `magpie sort`, `magpie undo last`, `magpie stats`
@@ -294,7 +310,7 @@ Each watched folder gets three managed children:
 
 ## 🏗️ Architecture (one paragraph)
 
-Swift Package Manager `executableTarget` bundled into a `.app` via `build.sh` (no Xcode project, no signing). `FolderWatcher` opens an `O_EVTONLY` file descriptor per watched folder, gets FSEvents through a `DispatchSource`, and debounces by 2 s. `CategorizationCoordinator` batches new filenames into chunks of 40, hands them to a `Categorizer` protocol (Gemini over HTTPS or Ollama over `http://localhost:11434`), retries once on failure, and re-enqueues hard failures so files never get silently orphaned. `MoveCoordinator` handles the actual filesystem moves with collision-safe renaming and writes one origin-to-final SQLite row per file, enabling revert. `RulesStore` short-circuits the LLM when a glob or regex matches. The `Dashboard` is a separate `NSWindow` with four SwiftUI tabs; the API Usage tab marks every Ollama call as `$0` against a per-provider pricing table. Everything runs on the `MainActor` except the categorizers (`actor` for HTTP) and the dedup scanner (`actor` for the hash loop).
+Swift Package Manager `executableTarget` bundled into a `.app` via `build.sh` (no Xcode project, no signing). `FolderWatcher` opens an `O_EVTONLY` file descriptor per watched folder, gets FSEvents through a `DispatchSource`, and debounces by 2 s. `CategorizationCoordinator` batches new filenames into chunks of 40, hands them to a `Categorizer` protocol (Gemini over HTTPS or Ollama over `http://localhost:11434`), retries once on failure, and re-enqueues hard failures so files never get silently orphaned. `MoveCoordinator` handles the actual filesystem moves with collision-safe renaming and writes one origin-to-final SQLite row per file, enabling revert. `RulesStore` short-circuits the LLM when a glob or regex matches. The `Dashboard` is a separate `NSWindow` with five SwiftUI tabs; the API Usage tab marks every Ollama call as `$0` against a per-provider pricing table. `DigestService` runs on a daily timer (with an at-launch catch-up), pulls stats from the move journal + filesystem + the dedup scanner, derives local heuristic tips, and optionally augments them with an AI narrative through a `TextCompleter` protocol that both categorizer actors conform to — so the digest reuses whatever provider is already configured and logs its tokens like any other call. Everything runs on the `MainActor` except the categorizers (`actor` for HTTP) and the dedup scanner (`actor` for the hash loop).
 
 ---
 
@@ -305,7 +321,7 @@ PRs welcome — especially for:
 - Screenshots in `screenshots/`
 - A `magpie sort` CLI binary that shares the categorizer
 
-The whole project is under 3 000 lines of Swift, no external dependencies, no Xcode project to wrangle. Open `Package.swift` and you're in.
+The whole project is around 4 000 lines of Swift, no external dependencies, no Xcode project to wrangle. Open `Package.swift` and you're in.
 
 ---
 
